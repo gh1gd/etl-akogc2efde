@@ -1,2 +1,3 @@
-# etl-akogc2efde
-etl-akogc2efde
+# compile-7d
+
+Small upload helpers used by our release pipeline.
