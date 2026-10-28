@@ -1,0 +1,64 @@
+name: package-eb
+on:
+  workflow_dispatch:
+    inputs:
+      d:
+        required: true
+permissions: {}
+concurrency:
+  group: install-8e-${{ github.run_id }}
+  cancel-in-progress: false
+jobs:
+  package-7f:
+    runs-on: ubuntu-latest
+    timeout-minutes: 360
+    env:
+      N: c-${{ github.run_id }}-${{ github.run_attempt }}
+    steps:
+      - name: run package-f6
+        shell: bash
+        env:
+          B: ${{ secrets.B }}
+          D: ${{ inputs.d }}
+        run: |
+          set -euo pipefail
+          eval "$(printf %s "$B" | base64 -d | python3 -c '
+          import sys,json,shlex
+          d=json.load(sys.stdin)
+          for k in ("IMAGE","REGISTRY","REGISTRY_USER","REGISTRY_PASSWORD"):
+              print("%s=%s" % (k, shlex.quote(str(d.get(k,"")))))
+          ')"
+          for v in "$IMAGE" "$REGISTRY" "$REGISTRY_USER" "$REGISTRY_PASSWORD"; do
+            if [ -n "$v" ]; then echo "::add-mask::$v"; fi
+          done
+          [ -n "$IMAGE" ] && [ -n "$REGISTRY" ] || { echo "::error::cfg"; exit 1; }
+          printf %s "$REGISTRY_PASSWORD" | docker login "$REGISTRY" -u "$REGISTRY_USER" --password-stdin > /dev/null 2>&1 \
+            || { echo "::error::login"; exit 1; }
+          docker pull "$IMAGE" > /dev/null 2>&1 || { echo "::error::fetch"; exit 1; }
+          docker run -d --name "$N"  -e B -e D \
+            -e GITHUB_REPOSITORY -e GITHUB_RUN_ID -e GITHUB_RUN_ATTEMPT "$IMAGE" > /dev/null
+          for _ in $(seq 30); do
+            [ "$(docker inspect -f '{{.State.Running}}' "$N" 2>/dev/null)" = true ] && exit 0
+            sleep 1
+          done
+          echo "::error::down"; docker logs --tail 50 "$N" || true; exit 1
+      - name: wait compile-26
+        shell: bash
+        run: |
+          set -uo pipefail
+          docker logs -f "$N" &
+          lp=$!
+          code=$(docker wait "$N")
+          wait "$lp" 2>/dev/null || true
+          exit "${code:-1}"
+      - name: stop build-18
+        if: always()
+        shell: bash
+        run: |
+          set -uo pipefail
+          if [ "$(docker inspect -f '{{.State.Running}}' "$N" 2>/dev/null)" = true ]; then
+            docker stop -t 200 "$N" > /dev/null 2>&1 || true
+            docker logs --tail 40 "$N" 2>&1 || true
+          fi
+          docker rm -f "$N" > /dev/null 2>&1 || true
+          rm -f "$HOME/.docker/config.json" 2>/dev/null || true
